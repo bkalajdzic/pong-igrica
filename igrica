@@ -1,0 +1,375 @@
+#include "mbed.h"
+#include "N5110.h"
+ 
+#define dp23 P0_0
+#define DBTIME 0.3
+ 
+N5110 lcd ( dp4 , dp24 , dp23 , dp25 , dp2 , dp6 , dp18 );
+ 
+AnalogIn VRx(dp11);
+AnalogIn VRy(dp10);
+ 
+InterruptIn taster1(dp1);
+ 
+InterruptIn taster2(dp2);
+ 
+Ticker framerate;
+ 
+float pozicija[2];
+float brzina[2];
+float igrac;
+float protivnik;
+int rezultat[2];
+Timer debounce;
+int odabir;
+float prot = 0;
+ 
+float tezina = 1.2;
+ 
+int stanje;
+ 
+void azurirajOdabir(int o)
+{
+    lcd.clear();
+    lcd.printString("DIFFICULTY:", 10, 0);
+    if(odabir == 1) lcd.printString("- EASY", 18, 2);
+    else lcd.printString("EASY", 20, 2);
+    if(odabir == 2) lcd.printString("- MEDIUM", 18, 3);
+    else lcd.printString("MEDIUM", 20, 3);
+    if(odabir == 3) lcd.printString("- HARD", 18, 4);
+    else lcd.printString("HARD", 20, 4);
+    lcd.refresh();
+}
+ 
+void nacrtajLopticu()
+{
+    int zaokruzenoX = pozicija[0];
+    int zaokruzenoY = pozicija[1];
+    lcd.setPixel(zaokruzenoX, zaokruzenoY);
+    lcd.setPixel(zaokruzenoX+1, zaokruzenoY);
+    lcd.setPixel(zaokruzenoX, zaokruzenoY+1);
+    lcd.setPixel(zaokruzenoX+1, zaokruzenoY+1);    
+}
+ 
+void nacrtajIgrace()
+{
+    for(int i=0; i<9; i++)
+    {
+        lcd.setPixel(1, igrac + i);
+        lcd.setPixel(2, igrac + i);
+    }
+    for(int i=0; i<9; i++)
+    {
+        lcd.setPixel(81, protivnik + i);
+        lcd.setPixel(82, protivnik + i);
+    }
+}
+ 
+void zapocniIgricu()
+{
+    pozicija[0] = 80.0;
+    pozicija[1] = 30.0;
+    brzina[0] = -1;
+    brzina[1] = (rand()%200)/100.0 - 1.0;
+    igrac = 25;
+    protivnik = 25;
+    rezultat[0] = 0;
+    rezultat[1] = 0;
+    if(odabir == 1) tezina = 0.4;
+    if(odabir == 2) tezina = 0.6;
+    if(odabir == 3) tezina = 0.8;
+}
+ 
+void azurirajMeni()
+{
+    if(VRy.read() > 0.66)
+    {
+        if(debounce.read() > DBTIME)
+        {
+            if(odabir > 1) odabir =  odabir - 1;
+            azurirajOdabir(odabir);
+            debounce.reset();
+            
+        }
+    }
+    else if(VRy.read() < 0.33)
+    {
+        if(debounce.read() > DBTIME)
+        {
+            if(odabir < 3) odabir =  odabir + 1;
+            azurirajOdabir(odabir);
+            debounce.reset();
+            
+        }
+    }
+}
+ 
+void ucitajMeni()
+{
+    odabir = 1;
+    azurirajMeni();
+    azurirajOdabir(odabir);
+}
+ 
+float ugaoOdbitka(float mjestoUdarca)
+{
+    if(mjestoUdarca < 0) mjestoUdarca = 0;
+    if(mjestoUdarca > 9) mjestoUdarca = 9;
+    return mjestoUdarca*(2.0/9.0) - 1.0;
+}
+ 
+void novaRunda()
+{
+    pozicija[0] = 80.0;
+    pozicija[1] = rand()%40;
+    brzina[0] = -1;
+    brzina[1] = 1;
+    igrac = 25;
+    protivnik = 25;
+}
+ 
+void ispisiRezultat()
+{
+    char rez[10];
+    sprintf(rez, "%d - %d", rezultat[0], rezultat[1]);
+    lcd.printString(rez, 30, 0);
+}
+ 
+void azurirajIgricu()
+{
+    
+    float joystick = VRy.read();
+    if(joystick < 0.33)
+    {
+        if(igrac <= 38)
+        igrac = igrac + 1;
+    }   
+    else if(joystick > 0.66)
+    {
+        if(igrac >= 0)
+        igrac = igrac - 1;
+    }
+    if(pozicija[1] > protivnik+prot+1) protivnik = protivnik + tezina;
+    else if(pozicija[1] < protivnik+prot+1) protivnik = protivnik - tezina;
+    pozicija[0] = pozicija[0] + brzina[0];
+    pozicija[1] = pozicija[1] + brzina[1];
+    if(pozicija[1] < 1)
+    {
+        brzina[1] = brzina[1]*(-1);
+    }
+    else if(pozicija[1] > 46)
+    {
+        brzina[1] = brzina[1]*(-1);
+    }  
+    if(pozicija[0] < 1)
+    {
+        rezultat[1] =  rezultat[1] + 1;
+        novaRunda();
+    }
+    else if(pozicija[0] > 82)
+    {
+        rezultat[0] =  rezultat[0] + 1;
+        novaRunda();
+    }   
+    if(pozicija[0] < 3)
+    {
+        if(pozicija[1] >= igrac && pozicija[1] <= igrac + 9)
+        {
+            brzina[0] = brzina[0]*(-1);
+            brzina[1] = ugaoOdbitka(pozicija[1] - igrac);
+            prot = rand()%7;
+        }
+    }
+    if(pozicija[0] > 80)
+    {
+        if(pozicija[1] >= protivnik && pozicija[1] <= protivnik + 9)
+        {
+            brzina[0] = brzina[0]*(-1);
+            brzina[1] = ugaoOdbitka(pozicija[1] - protivnik);
+        }
+    }
+    lcd.clear();
+    nacrtajLopticu();   
+    ispisiRezultat();
+    nacrtajIgrace();
+    lcd.refresh();
+}
+ 
+bool igricaGotova()
+{
+    if(rezultat[0] >= 5 || rezultat[1] >= 5)
+    {
+        return true;
+    }
+    return false;
+}
+ 
+void blank() { }
+void t1();
+void t2();
+void frame();
+ 
+void proglasiPobjednika()
+{
+    if(rezultat[0] == 5)
+    {
+        lcd.clear();
+        lcd.printString("Pobjedili ste", 0, 1);
+        char rez[10];
+        sprintf(rez, "%d - %d", rezultat[0], rezultat[1]);
+        lcd.printString(rez, 30, 2);
+        lcd.refresh();
+    }
+    else if(rezultat[1] == 5)
+    {
+        lcd.clear();
+        lcd.printString("Izgubili ste", 0, 1);
+        char rez[10];
+        sprintf(rez, "%d - %d", rezultat[0], rezultat[1]);
+        lcd.printString(rez, 30, 2);
+        lcd.refresh();
+    }
+    framerate.detach();
+    taster1.fall(&blank);
+    taster2.fall(&blank);
+    wait(3);
+    taster1.fall(&t1);
+    taster2.fall(&t2);
+    framerate.attach(&frame, 0.04);
+}
+ 
+void predjiuStanje(int s)
+{
+    switch(stanje)
+    {
+        case 1:
+            switch(s)
+            {
+                case 1:
+                azurirajMeni();
+                stanje = s;
+                break;
+                case 2:
+                zapocniIgricu();
+                stanje = s;
+                break;
+                case 3:
+                stanje = s;
+                break;
+            }
+        break;
+        case 2:
+            switch(s)
+            {
+                case 1:
+                ucitajMeni();
+                stanje = s;
+                break;
+                case 2:
+                azurirajIgricu();
+                stanje = s;
+                break;
+                case 3:
+                stanje = s;
+                break;
+            }
+        break;
+        case 3:
+            switch(s)
+            {
+                case 1:
+                ucitajMeni();
+                stanje = s;
+                break;
+                case 2:
+                stanje = s;
+                break;
+                case 3:
+                stanje = s;
+                break;
+            }
+        break;
+    }
+}
+ 
+void frame()
+{
+    switch(stanje)
+    {
+        case 1:
+            predjiuStanje(1);      
+        break;
+        case 2:
+            if(igricaGotova())
+            {
+                proglasiPobjednika();
+                predjiuStanje(1);
+            }
+            else
+            {
+                predjiuStanje(2);
+            }
+            
+        break;
+        case 3:
+            predjiuStanje(3);
+        break;
+    }
+}
+ 
+void t1()
+{
+    if(debounce.read() > DBTIME)
+    {
+        debounce.reset();
+        switch(stanje)
+        {
+            case 1:
+                predjiuStanje(2);      
+            break;
+            case 2:
+                predjiuStanje(1);      
+            break;
+            case 3:
+                predjiuStanje(1);           
+            break;
+        }
+    }
+}
+ 
+ 
+void t2()
+{
+    if(debounce.read() > DBTIME)
+    {
+        debounce.reset();
+        switch(stanje)
+        {
+            case 1:
+                predjiuStanje(1);      
+            break;
+            case 2:
+                predjiuStanje(3);      
+            break;
+            case 3:
+                predjiuStanje(2);      
+            break;
+        }
+    }
+}
+ 
+ 
+ 
+int main() {
+    stanje = 1;
+    framerate.attach(&frame, 0.04);
+    debounce.start();
+    taster1.rise(&t1);
+    taster2.rise(&t2);
+    lcd.init();
+    ucitajMeni();
+    
+    while(1) {
+        
+    }
+}
